@@ -75,11 +75,15 @@ jobs:
           echo "HIGH_RISK_RATIO=$HIGH_RISK_RATIO"
 
       - name: Run AI risk prediction
+        shell: bash
         run: |
-          python src/predict_risk.py scan.json | tee result.txt
+          set -euo pipefail
+          python3 src/predict_risk.py scan.json > result.txt
+          echo "Saved AI output to result.txt"
+          cat result.txt
 
-          - name: Enforce security policy (AI + fixability + severity)
-          run: |
+      - name: Enforce security policy (AI + fixability + severity)
+        run: |
             set -euo pipefail
   
             echo "=== Policy Inputs ==="
