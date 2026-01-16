@@ -35,7 +35,7 @@ jobs:
         run: |
           docker pull nginx:latest
 
-           - name: Scan image with Trivy
+      - name: Scan image with Trivy
         run: |
           trivy image --format json -o scan.json nginx:latest
 
@@ -49,42 +49,56 @@ jobs:
           HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' scan.json)
           FIXABLE=$(jq '[.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "")] | length' scan.json)
 
-          echo "TOTAL=$TOTAL" >> $GITHUB_ENV
-          echo "CRITICAL=$CRITICAL" >> $GITHUB_ENV
-          echo "HIGH=$HIGH" >> $GITHUB_ENV
-          echo "FIXABLE=$FIXABLE" >> $GITHUB_ENV
+          export TOTAL CRITICAL HIGH FIXABLE
 
-                - name: Run AI risk prediction
-                    run: |
-                    python src/predict_risk.py scan.json | tee result.txt
+          if [ "${TOTAL:-0}" -gt 0 ]; then
+            FIXABLE_RATIO=$(python3 -c "print(round(int('${FIXABLE:-0}')/int('${TOTAL:-1}'), 3) if int('${TOTAL:-0}') > 0 else 0)")
+            HIGH_RISK_RATIO=$(python3 -c "total=int('${TOTAL:-1}'); crit=int('${CRITICAL:-0}'); high=int('${HIGH:-0}'); print(round((crit+high)/total, 3) if total > 0 else 0)")
+          else
+            FIXABLE_RATIO=0
+            HIGH_RISK_RATIO=0
+          fi
 
-                - name: Enforce security policy (AI + fixability + severity)
-                    run: |
-                    echo "=== Policy Inputs ==="
-                    cat result.txt
-                    echo ""
-                    echo "TOTAL=$TOTAL CRITICAL=$CRITICAL HIGH=$HIGH FIXABLE=$FIXABLE FIXABLE_RATIO=$FIXABLE_RATIO HIGH_RISK_RATIO=$HIGH_RISK_RATIO"
+          echo "TOTAL=$TOTAL" >> "$GITHUB_ENV"
+          echo "CRITICAL=$CRITICAL" >> "$GITHUB_ENV"
+          echo "HIGH=$HIGH" >> "$GITHUB_ENV"
+          echo "FIXABLE=$FIXABLE" >> "$GITHUB_ENV"
+          echo "FIXABLE_RATIO=$FIXABLE_RATIO" >> "$GITHUB_ENV"
+          echo "HIGH_RISK_RATIO=$HIGH_RISK_RATIO" >> "$GITHUB_ENV"
 
-                    AI_LABEL="UNKNOWN"
-                    if grep -q "Predicted Risk Level: HIGH" result.txt; then
-                        AI_LABEL="HIGH"
-                    elif grep -q "Predicted Risk Level: MEDIUM" result.txt; then
-                        AI_LABEL="MEDIUM"
-                    elif grep -q "Predicted Risk Level: LOW" result.txt; then
-                        AI_LABEL="LOW"
-                    fi
-                    echo "AI_LABEL=$AI_LABEL"
+          echo "=== Scan Summary ==="
+          echo "TOTAL=$TOTAL"
+          echo "CRITICAL=$CRITICAL"
+          echo "HIGH=$HIGH"
+          echo "FIXABLE=$FIXABLE"
+          echo "FIXABLE_RATIO=$FIXABLE_RATIO"
+          echo "HIGH_RISK_RATIO=$HIGH_RISK_RATIO"
 
-                    # Fail if CRITICAL exists AND at least one fix exists
-                    if [ "${CRITICAL:-0}" -ge 1 ] && [ "${FIXABLE:-0}" -ge 1 ]; then
-                        echo "❌ BLOCK: CRITICAL vulnerabilities exist and at least one is fixable."
-                        exit 1
-                    fi
+      - name: Run AI risk prediction
+        run: |
+          python src/predict_risk.py scan.json | tee result.txt
 
-                    # Fail if AI=HIGH AND (fixable_ratio>=0.20 OR high_risk_ratio>=0.30)
-                    if [ "$AI_LABEL" = "HIGH" ]; then
-                        export FIXABLE_RATIO HIGH_RISK_RATIO
-                        python3 - <<'PY'
+      - name: Enforce security policy (AI + fixability + severity)
+        run: |
+          echo "=== Policy Inputs ==="
+          cat result.txt
+          echo ""
+          echo "TOTAL=$TOTAL CRITICAL=$CRITICAL HIGH=$HIGH FIXABLE=$FIXABLE FIXABLE_RATIO=$FIXABLE_RATIO HIGH_RISK_RATIO=$HIGH_RISK_RATIO"
+
+          AI_HIGH=0
+          if grep -q "Predicted Risk Level: HIGH" result.txt; then
+            AI_HIGH=1
+          fi
+
+          # 1) Any CRITICAL + at least one fixable vuln => FAIL
+          if [ "${CRITICAL:-0}" -ge 1 ] && [ "${FIXABLE:-0}" -ge 1 ]; then
+            echo "❌ BLOCK: CRITICAL vulnerabilities exist and at least one is fixable."
+            exit 1
+          fi
+
+          # 2) AI predicts HIGH and fixable_ratio >= 0.20 OR high_risk_ratio >= 0.30 => FAIL
+          if [ "$AI_HIGH" -eq 1 ]; then
+            python3 - <<'PY'
             import os, sys
             fix=float(os.environ.get("FIXABLE_RATIO","0"))
             highrisk=float(os.environ.get("HIGH_RISK_RATIO","0"))
@@ -93,17 +107,13 @@ jobs:
                 sys.exit(1)
             print("✅ PASS: AI=HIGH but thresholds not exceeded.")
             PY
-                    else
-                        echo "✅ PASS: AI not HIGH."
-                    fi
+          else
+            echo "✅ PASS: AI not HIGH."
+          fi
 
-                    if [ "$AI_LABEL" = "MEDIUM" ]; then
-                        echo "⚠️ WARNING: AI predicted MEDIUM risk. Pipeline allowed, but review recommended."
-                    fi
-
-                - name: Upload scan & AI results
-                    uses: actions/upload-artifact@v4
-                    with:
+      - name: Upload scan & AI results
+        uses: actions/upload-artifact@v4
+        with:
           name: trivy-scan-and-ai-result
           path: |
             scan.json
