@@ -35,11 +35,11 @@ jobs:
         run: |
           docker pull nginx:latest
 
-      - name: Scan image with Trivy
+           - name: Scan image with Trivy
         run: |
           trivy image --format json -o scan.json nginx:latest
 
-           - name: Summarize Trivy scan (counts + fixable)
+      - name: Summarize Trivy scan (counts + fixable)
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
@@ -49,42 +49,10 @@ jobs:
           HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' scan.json)
           FIXABLE=$(jq '[.Results[]?.Vulnerabilities[]? | select(.FixedVersion != null and .FixedVersion != "")] | length' scan.json)
 
-          if [ "$TOTAL" -gt 0 ]; then
-            export TOTAL FIXABLE CRITICAL HIGH
-            FIXABLE_RATIO=$(python3 - <<'PY'
-            import os
-            t=int(os.environ["TOTAL"])
-            f=int(os.environ["FIXABLE"])
-            print(round(f/t, 3))
-            PY
-                        )
-                        HIGH_RISK_RATIO=$(python3 - <<'PY'
-            import os
-            t=int(os.environ["TOTAL"])
-            c=int(os.environ["CRITICAL"])
-            h=int(os.environ["HIGH"])
-            print(round((c+h)/t, 3))
-            PY
-                        )
-                    else
-                        FIXABLE_RATIO=0
-                        HIGH_RISK_RATIO=0
-                    fi
-
-                    echo "TOTAL=$TOTAL" >> "$GITHUB_ENV"
-                    echo "CRITICAL=$CRITICAL" >> "$GITHUB_ENV"
-                    echo "HIGH=$HIGH" >> "$GITHUB_ENV"
-                    echo "FIXABLE=$FIXABLE" >> "$GITHUB_ENV"
-                    echo "FIXABLE_RATIO=$FIXABLE_RATIO" >> "$GITHUB_ENV"
-                    echo "HIGH_RISK_RATIO=$HIGH_RISK_RATIO" >> "$GITHUB_ENV"
-
-                    echo "=== Scan Summary ==="
-                    echo "TOTAL=$TOTAL"
-                    echo "CRITICAL=$CRITICAL"
-                    echo "HIGH=$HIGH"
-                    echo "FIXABLE=$FIXABLE"
-                    echo "FIXABLE_RATIO=$FIXABLE_RATIO"
-                    echo "HIGH_RISK_RATIO=$HIGH_RISK_RATIO"
+          echo "TOTAL=$TOTAL" >> $GITHUB_ENV
+          echo "CRITICAL=$CRITICAL" >> $GITHUB_ENV
+          echo "HIGH=$HIGH" >> $GITHUB_ENV
+          echo "FIXABLE=$FIXABLE" >> $GITHUB_ENV
 
                 - name: Run AI risk prediction
                     run: |
