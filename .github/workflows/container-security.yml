@@ -11,44 +11,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    - name: Install Trivy
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y wget
-        wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.50.1_Linux-64bit.deb
-        sudo dpkg -i trivy_0.50.1_Linux-64bit.deb
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          trivy --version
 
-    - name: Pull Docker image
-      run: |
-        docker pull nginx:latest
+      - name: Pull Docker image
+        run: |
+          docker pull nginx:latest
 
-    - name: Scan image with Trivy
-      run: |
-        trivy image --format json -o scan.json nginx:latest
+      - name: Scan image with Trivy
+        run: |
+          trivy image --format json -o scan.json nginx:latest
 
-    - name: Run AI risk prediction
-      run: |
-        python src/predict_risk.py scan.json > result.txt
-        cat result.txt
+      - name: Run AI risk prediction
+        run: |
+          python src/predict_risk.py scan.json | tee result.txt
 
-    - name: Enforce security policy
-      run: |
-        if grep -q "Predicted Risk Level: HIGH" result.txt; then
-          echo "❌ High-risk image detected. Blocking pipeline."
-          exit 1
-        else
-          echo "✅ Image risk acceptable. Pipeline continues."
-        fi
+      - name: Enforce security policy
+        run: |
+          if grep -q "Predicted Risk Level: HIGH" result.txt; then
+            echo "❌ High-risk image detected. Blocking pipeline."
+            exit 1
+          else
+            echo "✅ Image risk acceptable. Pipeline continues."
+          fi
