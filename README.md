@@ -1,4 +1,4 @@
-# ML-Based-Container-Vulnerability-Scanner
+# devsecai-scanner
 
 AI-Driven Container Vulnerability Scanner: A Machine Learning Approach to Risk Classification
 Abstract
