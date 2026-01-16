@@ -78,39 +78,41 @@ jobs:
         run: |
           python src/predict_risk.py scan.json | tee result.txt
 
-      - name: Enforce security policy (AI + fixability + severity)
-        run: |
-          echo "=== Policy Inputs ==="
-          cat result.txt
-          echo ""
-          echo "TOTAL=$TOTAL CRITICAL=$CRITICAL HIGH=$HIGH FIXABLE=$FIXABLE FIXABLE_RATIO=$FIXABLE_RATIO HIGH_RISK_RATIO=$HIGH_RISK_RATIO"
-
-          AI_HIGH=0
-          if grep -q "Predicted Risk Level: HIGH" result.txt; then
-            AI_HIGH=1
-          fi
-
-          # 1) Any CRITICAL + at least one fixable vuln => FAIL
-          if [ "${CRITICAL:-0}" -ge 1 ] && [ "${FIXABLE:-0}" -ge 1 ]; then
-            echo "❌ BLOCK: CRITICAL vulnerabilities exist and at least one is fixable."
-            exit 1
-          fi
-
-          # 2) AI predicts HIGH and fixable_ratio >= 0.20 OR high_risk_ratio >= 0.30 => FAIL
-          if [ "$AI_HIGH" -eq 1 ]; then
-            python3 - <<'PY'
-            import os, sys
-            fix=float(os.environ.get("FIXABLE_RATIO","0"))
-            highrisk=float(os.environ.get("HIGH_RISK_RATIO","0"))
-            if fix >= 0.20 or highrisk >= 0.30:
-                print("❌ BLOCK: AI=HIGH and fixable_ratio>=0.20 OR high_risk_ratio>=0.30")
-                sys.exit(1)
-            print("✅ PASS: AI=HIGH but thresholds not exceeded.")
-            PY
-          else
-            echo "✅ PASS: AI not HIGH."
-          fi
-
+          - name: Enforce security policy (AI + fixability + severity)
+          run: |
+            set -euo pipefail
+  
+            echo "=== Policy Inputs ==="
+            cat result.txt
+            echo ""
+            echo "TOTAL=$TOTAL CRITICAL=$CRITICAL HIGH=$HIGH FIXABLE=$FIXABLE FIXABLE_RATIO=$FIXABLE_RATIO HIGH_RISK_RATIO=$HIGH_RISK_RATIO"
+  
+            AI_HIGH=0
+            if grep -q "Predicted Risk Level: HIGH" result.txt; then
+              AI_HIGH=1
+            fi
+  
+            # 1) Any CRITICAL + at least one fixable vuln => FAIL
+            if [ "${CRITICAL:-0}" -ge 1 ] && [ "${FIXABLE:-0}" -ge 1 ]; then
+              echo "❌ BLOCK: CRITICAL vulnerabilities exist and at least one is fixable."
+              exit 1
+            fi
+  
+            # 2) AI predicts HIGH and fixable_ratio >= 0.20 OR high_risk_ratio >= 0.30 => FAIL
+            if [ "$AI_HIGH" -eq 1 ]; then
+              FIX_OK=$(awk -v v="${FIXABLE_RATIO:-0}" 'BEGIN{print (v>=0.20)?1:0}')
+              HR_OK=$(awk -v v="${HIGH_RISK_RATIO:-0}" 'BEGIN{print (v>=0.30)?1:0}')
+  
+              if [ "$FIX_OK" -eq 1 ] || [ "$HR_OK" -eq 1 ]; then
+                echo "❌ BLOCK: AI=HIGH and fixable_ratio>=0.20 OR high_risk_ratio>=0.30"
+                exit 1
+              fi
+  
+              echo "✅ PASS: AI=HIGH but thresholds not exceeded."
+            else
+              echo "✅ PASS: AI not HIGH."
+            fi
+  
       - name: Upload scan & AI results
         uses: actions/upload-artifact@v4
         with:
