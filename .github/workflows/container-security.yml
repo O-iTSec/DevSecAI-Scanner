@@ -31,13 +31,15 @@ jobs:
           wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
           trivy --version
 
-      - name: Pull Docker image
+      - name: Build Docker image (CI)
         run: |
-          docker pull nginx:latest
+          docker build -t devsecai-scanner:ci .
+
 
       - name: Scan image with Trivy
         run: |
-          trivy image --format json -o scan.json nginx:latest
+          trivy image --format json -o scan.json devsecai-scanner:ci
+
 
       - name: Summarize Trivy scan (counts + fixable)
         run: |
