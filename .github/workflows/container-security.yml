@@ -30,7 +30,13 @@ jobs:
           sudo apt-get install -y wget
           wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
           trivy --version
-
+          
+      - name: Debug repo files
+        run: |
+            pwd
+            ls -la
+            find . -maxdepth 3 -iname "dockerfile" -print
+  
       - name: Build Docker image (CI)
         run: |
           docker build -t devsecai-scanner:ci .
