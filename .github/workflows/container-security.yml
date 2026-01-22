@@ -9,6 +9,9 @@ on:
 jobs:
   security-scan:
     runs-on: ubuntu-latest
+    env:
+      FIXABLE_RATIO_THRESHOLD: "0.20"
+      HIGH_RISK_RATIO_THRESHOLD: "0.30"
 
     steps:
       - name: Checkout repository
@@ -46,6 +49,9 @@ jobs:
         run: |
           trivy image --format json -o scan.json devsecai-scanner:ci
 
+      - name: Generate SBOM
+        run: |
+          trivy image --format cyclonedx -o sbom.json devsecai-scanner:ci
 
       - name: Summarize Trivy scan (counts + fixable)
         run: |
@@ -91,39 +97,43 @@ jobs:
           cat result.txt
 
       - name: Enforce security policy (AI + fixability + severity)
+        shell: bash
         run: |
-            set -euo pipefail
-  
-            echo "=== Policy Inputs ==="
-            cat result.txt
-            echo ""
-            echo "TOTAL=$TOTAL CRITICAL=$CRITICAL HIGH=$HIGH FIXABLE=$FIXABLE FIXABLE_RATIO=$FIXABLE_RATIO HIGH_RISK_RATIO=$HIGH_RISK_RATIO"
-  
-            AI_HIGH=0
-            if grep -q "Predicted Risk Level: HIGH" result.txt; then
-              AI_HIGH=1
-            fi
-  
-            # 1) Any CRITICAL + at least one fixable vuln => FAIL
-            if [ "${CRITICAL:-0}" -ge 1 ] && [ "${FIXABLE:-0}" -ge 1 ]; then
-              echo "❌ BLOCK: CRITICAL vulnerabilities exist and at least one is fixable."
+          set -euo pipefail
+
+          echo "=== Policy Inputs ==="
+          cat result.txt
+          echo ""
+          echo "TOTAL=$TOTAL CRITICAL=$CRITICAL HIGH=$HIGH FIXABLE=$FIXABLE FIXABLE_RATIO=$FIXABLE_RATIO HIGH_RISK_RATIO=$HIGH_RISK_RATIO"
+          echo "THRESHOLDS: FIXABLE_RATIO_THRESHOLD=$FIXABLE_RATIO_THRESHOLD HIGH_RISK_RATIO_THRESHOLD=$HIGH_RISK_RATIO_THRESHOLD"
+
+          AI_HIGH=0
+          if grep -q "Predicted Risk Level: HIGH" result.txt; then
+            AI_HIGH=1
+          fi
+
+          # 1) Any CRITICAL + at least one fixable vuln => FAIL
+          if [ "${CRITICAL:-0}" -ge 1 ] && [ "${FIXABLE:-0}" -ge 1 ]; then
+            echo "❌ BLOCK: CRITICAL vulnerabilities exist and at least one is fixable."
+            exit 1
+          fi
+
+          # 2) AI predicts HIGH and fixable_ratio >= threshold OR high_risk_ratio >= threshold => FAIL
+          if [ "$AI_HIGH" -eq 1 ]; then
+            FIX_OK=$(awk -v v="${FIXABLE_RATIO:-0}" -v t="${FIXABLE_RATIO_THRESHOLD:-0.20}" 'BEGIN{print (v>=t)?1:0}')
+            HR_OK=$(awk -v v="${HIGH_RISK_RATIO:-0}" -v t="${HIGH_RISK_RATIO_THRESHOLD:-0.30}" 'BEGIN{print (v>=t)?1:0}')
+
+            if [ "$FIX_OK" -eq 1 ] || [ "$HR_OK" -eq 1 ]; then
+              echo "❌ BLOCK: AI=HIGH and fixable_ratio>=${FIXABLE_RATIO_THRESHOLD} OR high_risk_ratio>=${HIGH_RISK_RATIO_THRESHOLD}"
               exit 1
             fi
-  
-            # 2) AI predicts HIGH and fixable_ratio >= 0.20 OR high_risk_ratio >= 0.30 => FAIL
-            if [ "$AI_HIGH" -eq 1 ]; then
-              FIX_OK=$(awk -v v="${FIXABLE_RATIO:-0}" 'BEGIN{print (v>=0.20)?1:0}')
-              HR_OK=$(awk -v v="${HIGH_RISK_RATIO:-0}" 'BEGIN{print (v>=0.30)?1:0}')
-  
-              if [ "$FIX_OK" -eq 1 ] || [ "$HR_OK" -eq 1 ]; then
-                echo "❌ BLOCK: AI=HIGH and fixable_ratio>=0.20 OR high_risk_ratio>=0.30"
-                exit 1
-              fi
-  
-              echo "✅ PASS: AI=HIGH but thresholds not exceeded."
-            else
-              echo "✅ PASS: AI not HIGH."
-            fi
+
+            echo "✅ PASS: AI=HIGH but thresholds not exceeded."
+          else
+            echo "✅ PASS: AI not HIGH."
+          fi
+
+
   
       - name: Upload scan & AI results
         uses: actions/upload-artifact@v4
@@ -131,4 +141,5 @@ jobs:
           name: trivy-scan-and-ai-result
           path: |
             scan.json
+            sbom.json
             result.txt
