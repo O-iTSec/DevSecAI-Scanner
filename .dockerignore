@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+data/scans/
+docs/
+*.png
+*.jpg
+*.jpeg
+*.DS_Store
+
